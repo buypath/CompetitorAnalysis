@@ -2,6 +2,7 @@ import streamlit as st
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from io import BytesIO
 
 st.set_page_config(
     page_title="Competitor Scatter Analysis",
@@ -11,6 +12,69 @@ st.set_page_config(
 
 st.title("BuiltWith Competitor Scatter Analysis")
 
+# Expected columns for import/export
+EXPECTED_COLUMNS = [
+    'Domain', 'Platform', 'CDN', 'GA4', 'GTM', 'Google Ads',
+    'Meta Pixel', 'CMP', 'A/B Testing', 'Personalisation',
+    'Reviews', 'Site Search', 'Chat'
+]
+
+BOOLEAN_COLUMNS = [
+    'GA4', 'GTM', 'Google Ads', 'Meta Pixel', 'CMP',
+    'A/B Testing', 'Personalisation', 'Reviews', 'Site Search', 'Chat'
+]
+
+def get_template_df():
+    """Create an empty template DataFrame"""
+    return pd.DataFrame(columns=EXPECTED_COLUMNS)
+
+def get_template_with_example():
+    """Create a template with example data"""
+    return pd.DataFrame([{
+        'Domain': 'example.com',
+        'Platform': 'Shopify',
+        'CDN': 'Cloudflare',
+        'GA4': True,
+        'GTM': True,
+        'Google Ads': True,
+        'Meta Pixel': True,
+        'CMP': True,
+        'A/B Testing': False,
+        'Personalisation': False,
+        'Reviews': True,
+        'Site Search': False,
+        'Chat': True,
+    }])
+
+def to_excel(df):
+    """Convert DataFrame to Excel bytes"""
+    output = BytesIO()
+    with pd.ExcelWriter(output, engine='openpyxl') as writer:
+        df.to_excel(writer, index=False, sheet_name='Competitors')
+    return output.getvalue()
+
+def process_imported_df(df):
+    """Process and validate imported DataFrame"""
+    # Check for required columns
+    missing_cols = [col for col in EXPECTED_COLUMNS if col not in df.columns]
+    if missing_cols:
+        st.error(f"Missing columns: {', '.join(missing_cols)}")
+        return None
+
+    # Select only expected columns in correct order
+    df = df[EXPECTED_COLUMNS].copy()
+
+    # Convert boolean columns
+    for col in BOOLEAN_COLUMNS:
+        if col in df.columns:
+            # Handle various boolean representations
+            df[col] = df[col].apply(lambda x:
+                True if str(x).lower() in ['true', '1', 'yes', 'y', 'x']
+                else False
+            )
+
+    return df
+
 # Info section
 with st.expander("ℹ️ Scoring Methodology"):
     st.markdown("""
@@ -18,6 +82,82 @@ with st.expander("ℹ️ Scoring Methodology"):
     - **Marketing Score (Y-axis):** GA4+GTM(+3), Ads tags(+2), CMP(+2) - max 10
     - **Conversion Score (X-axis):** A/B testing(+3), Personalisation(+2), Reviews(+2), Chat(+1), Search(+2) - max 10
     """)
+
+# Sidebar for Import/Export
+with st.sidebar:
+    st.header("Import / Export")
+
+    # Download template
+    st.subheader("Download Template")
+    template_df = get_template_with_example()
+
+    col1, col2 = st.columns(2)
+    with col1:
+        st.download_button(
+            label="CSV Template",
+            data=template_df.to_csv(index=False),
+            file_name="competitor_template.csv",
+            mime="text/csv",
+        )
+    with col2:
+        st.download_button(
+            label="Excel Template",
+            data=to_excel(template_df),
+            file_name="competitor_template.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        )
+
+    st.caption("Download a template to see the expected format. Use TRUE/FALSE or YES/NO for checkbox columns.")
+
+    st.divider()
+
+    # Import data
+    st.subheader("Import Data")
+    uploaded_file = st.file_uploader(
+        "Upload CSV or Excel file",
+        type=['csv', 'xlsx', 'xls'],
+        help="Upload a file with competitor data. Must have columns: Domain, Platform, CDN, GA4, GTM, etc."
+    )
+
+    if uploaded_file is not None:
+        try:
+            if uploaded_file.name.endswith('.csv'):
+                imported_df = pd.read_csv(uploaded_file)
+            else:
+                imported_df = pd.read_excel(uploaded_file)
+
+            processed_df = process_imported_df(imported_df)
+
+            if processed_df is not None:
+                st.success(f"Loaded {len(processed_df)} competitors")
+                if st.button("Apply Import", type="primary", use_container_width=True):
+                    st.session_state.competitors = processed_df
+                    st.rerun()
+        except Exception as e:
+            st.error(f"Error reading file: {str(e)}")
+
+    st.divider()
+
+    # Export current data
+    st.subheader("Export Current Data")
+    if 'competitors' in st.session_state and len(st.session_state.competitors) > 0:
+        export_df = st.session_state.competitors.copy()
+
+        col1, col2 = st.columns(2)
+        with col1:
+            st.download_button(
+                label="Export CSV",
+                data=export_df.to_csv(index=False),
+                file_name="competitors_export.csv",
+                mime="text/csv",
+            )
+        with col2:
+            st.download_button(
+                label="Export Excel",
+                data=to_excel(export_df),
+                file_name="competitors_export.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            )
 
 def calculate_platform_score(platform: str, cdn: str) -> int:
     """Calculate Platform & Architecture Score (0-10)"""
