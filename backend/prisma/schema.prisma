@@ -1,0 +1,318 @@
+// MIT Licence — AI CFO Wallet — Buypath Ltd
+// Prisma schema for AI CFO Wallet backend
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+// ─── Enums ───────────────────────────────────────────────────────────────────
+
+enum KycStatus {
+  PENDING
+  IN_REVIEW
+  APPROVED
+  REJECTED
+}
+
+enum SubscriptionTier {
+  STARTER
+  GROWTH
+  SCALE
+}
+
+enum UserRole {
+  OWNER
+  ADMIN
+  MEMBER
+}
+
+enum WalletType {
+  FIAT
+  STABLECOIN
+  SUB_WALLET
+}
+
+enum Currency {
+  GBP
+  USD
+  EUR
+  USDC
+}
+
+enum TransactionType {
+  DEPOSIT
+  WITHDRAWAL
+  TRANSFER
+  CONVERSION
+  PAYMENT
+  FEE
+}
+
+enum TransactionStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+  REVERSED
+}
+
+enum RuleStatus {
+  DRAFT
+  ACTIVE
+  PAUSED
+  ARCHIVED
+}
+
+enum TriggerType {
+  SCHEDULE
+  THRESHOLD
+  EVENT
+}
+
+enum PaymentMethod {
+  FASTER_PAYMENTS
+  ACH
+  SEPA
+  STABLECOIN
+  CARD
+}
+
+enum ScheduledPaymentStatus {
+  PENDING
+  PROCESSING
+  COMPLETED
+  FAILED
+  CANCELLED
+}
+
+// ─── Core Entities ────────────────────────────────────────────────────────────
+
+model Business {
+  id                String           @id @default(uuid())
+  name              String
+  registrationNumber String?         @unique
+  vatNumber         String?
+  kycStatus         KycStatus        @default(PENDING)
+  subscriptionTier  SubscriptionTier @default(STARTER)
+  country           String           @default("GB")
+  timezone          String           @default("Europe/London")
+  settings          Json             @default("{}")
+  createdAt         DateTime         @default(now())
+  updatedAt         DateTime         @updatedAt
+
+  users             User[]
+  wallets           Wallet[]
+  rules             Rule[]
+  suppliers         Supplier[]
+  aiForecasts       AiForecast[]
+  scheduledPayments ScheduledPayment[]
+
+  @@map("businesses")
+}
+
+model User {
+  id           String   @id @default(uuid())
+  businessId   String
+  externalId   String?  @unique // Clerk / Auth0 user ID
+  email        String   @unique
+  firstName    String
+  lastName     String
+  role         UserRole @default(MEMBER)
+  permissions  Json     @default("{}")
+  isActive     Boolean  @default(true)
+  lastLoginAt  DateTime?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  business     Business @relation(fields: [businessId], references: [id])
+
+  @@map("users")
+}
+
+model Wallet {
+  id                   String     @id @default(uuid())
+  businessId           String
+  type                 WalletType
+  currency             Currency
+  balance              Decimal    @default(0) @db.Decimal(30, 18)
+  smartAccountAddress  String?    @unique
+  parentWalletId       String?
+  label                String?
+  isDefault            Boolean    @default(false)
+  metadata             Json       @default("{}")
+  createdAt            DateTime   @default(now())
+  updatedAt            DateTime   @updatedAt
+
+  business             Business   @relation(fields: [businessId], references: [id])
+  parentWallet         Wallet?    @relation("SubWallets", fields: [parentWalletId], references: [id])
+  subWallets           Wallet[]   @relation("SubWallets")
+  sentTransactions     Transaction[] @relation("FromWallet")
+  receivedTransactions Transaction[] @relation("ToWallet")
+
+  @@map("wallets")
+}
+
+model Transaction {
+  id             String            @id @default(uuid())
+  businessId     String
+  type           TransactionType
+  status         TransactionStatus @default(PENDING)
+  fromWalletId   String?
+  toWalletId     String?
+  amount         Decimal           @db.Decimal(30, 18)
+  currency       Currency
+  feeAmount      Decimal?          @db.Decimal(30, 18)
+  feeCurrency    Currency?
+  txHash         String?           @unique
+  externalRef    String?           // Stripe/Modulr/Circle reference
+  idempotencyKey String?           @unique
+  description    String?
+  category       String?           // AI-assigned category
+  metadata       Json              @default("{}")
+  executedAt     DateTime?
+  createdAt      DateTime          @default(now())
+  updatedAt      DateTime          @updatedAt
+
+  fromWallet     Wallet?           @relation("FromWallet", fields: [fromWalletId], references: [id])
+  toWallet       Wallet?           @relation("ToWallet", fields: [toWalletId], references: [id])
+  scheduledPayment ScheduledPayment?
+
+  @@index([businessId, createdAt])
+  @@index([status])
+  @@index([type])
+  @@map("transactions")
+}
+
+model Rule {
+  id                   String      @id @default(uuid())
+  businessId           String
+  name                 String
+  naturalLanguageInput String
+  parsedLogic          Json
+  status               RuleStatus  @default(DRAFT)
+  triggerType          TriggerType
+  cronExpression       String?     // For SCHEDULE triggers
+  thresholdConfig      Json?       // For THRESHOLD triggers
+  eventType            String?     // For EVENT triggers
+  version              Int         @default(1)
+  lastExecutedAt       DateTime?
+  nextExecutionAt      DateTime?
+  executionCount       Int         @default(0)
+  errorCount           Int         @default(0)
+  lastError            String?
+  metadata             Json        @default("{}")
+  createdAt            DateTime    @default(now())
+  updatedAt            DateTime    @updatedAt
+
+  business             Business    @relation(fields: [businessId], references: [id])
+  scheduledPayments    ScheduledPayment[]
+  executionLogs        RuleExecutionLog[]
+
+  @@map("rules")
+}
+
+model RuleExecutionLog {
+  id          String   @id @default(uuid())
+  ruleId      String
+  success     Boolean
+  inputData   Json     @default("{}")
+  outputData  Json     @default("{}")
+  error       String?
+  durationMs  Int?
+  executedAt  DateTime @default(now())
+
+  rule        Rule     @relation(fields: [ruleId], references: [id])
+
+  @@index([ruleId, executedAt])
+  @@map("rule_execution_logs")
+}
+
+model Supplier {
+  id                   String        @id @default(uuid())
+  businessId           String
+  name                 String
+  email                String?
+  paymentMethod        PaymentMethod @default(FASTER_PAYMENTS)
+  walletAddress        String?       // For stablecoin payments
+  bankDetailsEncrypted Json?         // Encrypted bank details
+  defaultCurrency      Currency      @default(GBP)
+  isActive             Boolean       @default(true)
+  tags                 String[]
+  metadata             Json          @default("{}")
+  createdAt            DateTime      @default(now())
+  updatedAt            DateTime      @updatedAt
+
+  business             Business      @relation(fields: [businessId], references: [id])
+  scheduledPayments    ScheduledPayment[]
+
+  @@map("suppliers")
+}
+
+model ScheduledPayment {
+  id            String                 @id @default(uuid())
+  businessId    String
+  ruleId        String?
+  supplierId    String?
+  transactionId String?                @unique
+  amount        Decimal                @db.Decimal(30, 18)
+  currency      Currency
+  dueDate       DateTime
+  status        ScheduledPaymentStatus @default(PENDING)
+  description   String?
+  idempotencyKey String?               @unique
+  executedAt    DateTime?
+  metadata      Json                   @default("{}")
+  createdAt     DateTime               @default(now())
+  updatedAt     DateTime               @updatedAt
+
+  business      Business               @relation(fields: [businessId], references: [id])
+  rule          Rule?                  @relation(fields: [ruleId], references: [id])
+  supplier      Supplier?              @relation(fields: [supplierId], references: [id])
+  transaction   Transaction?           @relation(fields: [transactionId], references: [id])
+
+  @@index([businessId, dueDate])
+  @@index([status])
+  @@map("scheduled_payments")
+}
+
+model AiForecast {
+  id              String   @id @default(uuid())
+  businessId      String
+  forecastDate    DateTime
+  forecastType    String   // cashflow | tax | treasury
+  data            Json
+  modelVersion    String
+  confidenceScore Decimal  @db.Decimal(5, 4)
+  tokensUsed      Int?
+  expiresAt       DateTime?
+  createdAt       DateTime @default(now())
+
+  business        Business @relation(fields: [businessId], references: [id])
+
+  @@index([businessId, forecastType, forecastDate])
+  @@map("ai_forecasts")
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  businessId  String?
+  userId      String?
+  action      String
+  entityType  String?
+  entityId    String?
+  oldValue    Json?
+  newValue    Json?
+  ipAddress   String?
+  userAgent   String?
+  createdAt   DateTime @default(now())
+
+  @@index([businessId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
