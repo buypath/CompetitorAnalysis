@@ -1,0 +1,20 @@
+{
+  "name": "buypath-agent-builder",
+  "version": "1.0.0",
+  "description": "Autonomous agent builder for BuyPath Ltd — scans, identifies, builds, tests, and deploys automation scripts weekly",
+  "type": "module",
+  "main": "src/index.mjs",
+  "scripts": {
+    "start": "node src/index.mjs",
+    "dry-run": "node src/index.mjs --dry-run --verbose",
+    "test": "node --experimental-vm-modules tests/validate.test.mjs"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  },
+  "dependencies": {},
+  "devDependencies": {},
+  "author": "Mike Jessop <mike@buypath.co.uk>",
+  "license": "UNLICENSED",
+  "private": true
+}
