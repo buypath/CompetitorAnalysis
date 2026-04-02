@@ -1,0 +1,27 @@
+{
+  "fireflies": {
+    "type": "url",
+    "url": "https://api.fireflies.ai/mcp",
+    "name": "fireflies"
+  },
+  "windsor": {
+    "type": "url",
+    "url": "https://mcp.windsor.ai",
+    "name": "windsor"
+  },
+  "gamma": {
+    "type": "url",
+    "url": "https://mcp.gamma.app/mcp",
+    "name": "gamma"
+  },
+  "gmail": {
+    "type": "url",
+    "url": "https://gmail.mcp.claude.com/mcp",
+    "name": "gmail"
+  },
+  "gcal": {
+    "type": "url",
+    "url": "https://gcal.mcp.claude.com/mcp",
+    "name": "gcal"
+  }
+}
